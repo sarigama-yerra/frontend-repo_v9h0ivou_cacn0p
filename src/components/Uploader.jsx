@@ -8,22 +8,24 @@ export default function Uploader() {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
-  const [csvPreview, setCsvPreview] = useState(null);
+  const [csvPreview, setCsvPreview] = useState(null); // JSON preview from backend
 
   const makeAbsUrl = (path) => {
     if (!path) return null;
     if (path.startsWith("http")) return path;
-    // If BACKEND_URL not set, fall back to relative path
     return `${BACKEND_URL}${path}`;
   };
 
-  const fetchCsvPreview = async (url) => {
+  const requestCsvPreview = async (storedName, maxLines = 10) => {
     try {
-      const res = await fetch(url);
-      const text = await res.text();
-      // Show first 10 lines only as preview, keep content verbatim
-      const lines = text.split(/\r?\n/).slice(0, 10).join("\n");
-      setCsvPreview(lines);
+      const res = await fetch(`${BACKEND_URL}/api/csv/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: storedName, max_lines: maxLines }),
+      });
+      if (!res.ok) throw new Error(`CSV preview failed (${res.status})`);
+      const data = await res.json();
+      setCsvPreview(data);
     } catch (e) {
       setCsvPreview(null);
     }
@@ -63,11 +65,10 @@ export default function Uploader() {
       setError(null);
       setResult(data);
 
-      // If CSV uploaded, fetch a small preview for confirmation
-      const csvPath = data?.files?.csv?.url;
-      if (csvPath) {
-        const abs = makeAbsUrl(csvPath);
-        fetchCsvPreview(abs);
+      // If CSV uploaded, request a backend-generated preview (first N rows, verbatim)
+      const storedCsvName = data?.files?.csv?.stored_as;
+      if (storedCsvName) {
+        await requestCsvPreview(storedCsvName, 10);
       }
     } catch (err) {
       setError(err.message || "Upload failed");
@@ -90,6 +91,44 @@ export default function Uploader() {
               View file
             </a>
           )}
+        </div>
+      </div>
+    );
+  };
+
+  const CsvPreviewTable = ({ preview }) => {
+    if (!preview) return null;
+    const { headers = [], rows = [] } = preview;
+    return (
+      <div className="mt-4">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm text-blue-200">CSV preview (first {rows.length} rows, verbatim)</p>
+        </div>
+        <div className="overflow-auto border border-blue-500/10 rounded-md bg-slate-900/60">
+          <table className="min-w-full text-xs text-blue-100">
+            {headers.length > 0 && (
+              <thead className="bg-slate-800/60">
+                <tr>
+                  {headers.map((h, i) => (
+                    <th key={i} className="px-3 py-2 text-left font-semibold text-blue-200 whitespace-pre">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+            )}
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri} className={ri % 2 ? "bg-slate-800/30" : ""}>
+                  {r.map((cell, ci) => (
+                    <td key={ci} className="px-3 py-2 align-top whitespace-pre">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     );
@@ -133,12 +172,7 @@ export default function Uploader() {
           <FileRow label="Spec" file={result?.files?.spec} />
           <FileRow label="CSV" file={result?.files?.csv} />
 
-          {csvPreview && (
-            <div className="mt-4">
-              <p className="text-sm text-blue-200 mb-2">CSV preview (first 10 lines, verbatim):</p>
-              <pre className="text-xs text-blue-100 bg-slate-900/60 border border-blue-500/10 p-3 rounded-md overflow-auto whitespace-pre-wrap">{csvPreview}</pre>
-            </div>
-          )}
+          <CsvPreviewTable preview={csvPreview} />
         </div>
       )}
     </div>
