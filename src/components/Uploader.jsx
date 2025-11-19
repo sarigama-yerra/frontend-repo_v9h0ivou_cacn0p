@@ -7,14 +7,43 @@ export default function Uploader() {
   const [csvFile, setCsvFile] = useState(null);
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+  const [csvPreview, setCsvPreview] = useState(null);
+
+  const makeAbsUrl = (path) => {
+    if (!path) return null;
+    if (path.startsWith("http")) return path;
+    // If BACKEND_URL not set, fall back to relative path
+    return `${BACKEND_URL}${path}`;
+  };
+
+  const fetchCsvPreview = async (url) => {
+    try {
+      const res = await fetch(url);
+      const text = await res.text();
+      // Show first 10 lines only as preview, keep content verbatim
+      const lines = text.split(/\r?\n/).slice(0, 10).join("\n");
+      setCsvPreview(lines);
+    } catch (e) {
+      setCsvPreview(null);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
     setStatus("Uploading...");
+    setResult(null);
+    setCsvPreview(null);
 
     if (!specFile && !csvFile) {
       setError("Please select at least one file to upload.");
+      setStatus(null);
+      return;
+    }
+
+    if (!BACKEND_URL) {
+      setError("Backend URL is not configured. Please set VITE_BACKEND_URL and reload.");
       setStatus(null);
       return;
     }
@@ -32,11 +61,38 @@ export default function Uploader() {
       const data = await res.json();
       setStatus("Upload complete.");
       setError(null);
-      return data;
+      setResult(data);
+
+      // If CSV uploaded, fetch a small preview for confirmation
+      const csvPath = data?.files?.csv?.url;
+      if (csvPath) {
+        const abs = makeAbsUrl(csvPath);
+        fetchCsvPreview(abs);
+      }
     } catch (err) {
       setError(err.message || "Upload failed");
       setStatus(null);
     }
+  };
+
+  const FileRow = ({ label, file }) => {
+    if (!file) return null;
+    const abs = makeAbsUrl(file.url);
+    return (
+      <div className="flex items-center justify-between py-2 px-3 rounded-md bg-slate-700/40 border border-blue-500/10">
+        <div className="min-w-0">
+          <p className="text-sm text-blue-100 truncate">
+            <span className="text-blue-300">{label}: </span>
+            {file.filename} <span className="text-blue-300">({file.size} bytes)</span>
+          </p>
+          {abs && (
+            <a href={abs} target="_blank" rel="noreferrer" className="text-xs text-blue-300 underline">
+              View file
+            </a>
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -70,6 +126,21 @@ export default function Uploader() {
         {status && <p className="text-sm text-blue-200">{status}</p>}
         {error && <p className="text-sm text-red-300">{error}</p>}
       </form>
+
+      {result && (
+        <div className="mt-6 space-y-3">
+          <h3 className="text-white font-semibold">Uploaded files</h3>
+          <FileRow label="Spec" file={result?.files?.spec} />
+          <FileRow label="CSV" file={result?.files?.csv} />
+
+          {csvPreview && (
+            <div className="mt-4">
+              <p className="text-sm text-blue-200 mb-2">CSV preview (first 10 lines, verbatim):</p>
+              <pre className="text-xs text-blue-100 bg-slate-900/60 border border-blue-500/10 p-3 rounded-md overflow-auto whitespace-pre-wrap">{csvPreview}</pre>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
